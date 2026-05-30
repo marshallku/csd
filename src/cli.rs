@@ -36,9 +36,15 @@ pub enum Command {
         /// Driving backend.
         #[arg(long, default_value = "claude")]
         backend: String,
-        /// Convenience for `--permission-mode acceptEdits` (explicit --permission-mode wins).
+        /// Convenience for `--permission-mode acceptEdits`.
         #[arg(long)]
         auto_accept: bool,
+        /// Convenience for `--permission-mode bypassPermissions` (skip all permission checks).
+        #[arg(long)]
+        bypass_permissions: bool,
+        /// Zero-friction: claude's `--dangerously-skip-permissions` plus auto-clearing the folder-trust gate.
+        #[arg(long)]
+        yolo: bool,
         /// Auto-clear the one-time "trust this folder?" startup gate so the session is driveable.
         #[arg(long)]
         trust: bool,

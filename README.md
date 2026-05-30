@@ -23,7 +23,7 @@ All structured commands emit JSON on stdout (errors go to stderr as `{"error": .
 
 | Command | What it does |
 | --- | --- |
-| `csd spawn [--cwd DIR] [--session-id UUID] [--permission-mode MODE] [--name NAME] [--auto-accept] [--trust]` | Start a detached session. `--trust` auto-clears the one-time folder-trust gate; `--auto-accept` ⇒ `--permission-mode acceptEdits`. |
+| `csd spawn [--cwd DIR] [--session-id UUID] [--permission-mode MODE] [--name NAME] [--trust] [--auto-accept\|--bypass-permissions\|--yolo]` | Start a detached session. `--trust` auto-clears the one-time folder-trust gate. Permission posture (mutually exclusive): `--auto-accept` ⇒ `acceptEdits`; `--bypass-permissions` ⇒ `bypassPermissions` (skip all checks); `--yolo` ⇒ `--dangerously-skip-permissions` + auto-trust (zero friction). |
 | `csd send <session> <prompt…> [--no-submit] [--retries N]` | Inject a prompt (send → verify echo → retry → Enter). |
 | `csd state <session>` | Hybrid-detector verdict (see below). |
 | `csd approve <session> [--option N]` | Answer a plan / permission / trust gate (default option `1`). |

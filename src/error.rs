@@ -37,6 +37,9 @@ pub enum Error {
     #[error("invalid permission mode {0:?}, expected one of {1}")]
     InvalidPermissionMode(String, String),
 
+    #[error("conflicting permission flags: use at most one of --permission-mode, --auto-accept, --bypass-permissions, --yolo")]
+    ConflictingPermissionFlags,
+
     #[error("failed to read {path:?}: {source}")]
     Io {
         path: PathBuf,

@@ -10,6 +10,8 @@ use crate::error::{Error, Result};
 pub struct SpawnOpts {
     pub session_id: String,
     pub permission_mode: Option<String>,
+    /// Pass claude's standalone `--dangerously-skip-permissions` (the `--yolo` posture).
+    pub dangerous: bool,
 }
 
 /// A driveable agent CLI.
@@ -52,6 +54,9 @@ impl Backend for Claude {
         if let Some(mode) = &opts.permission_mode {
             cmd.push_str(" --permission-mode ");
             cmd.push_str(mode);
+        }
+        if opts.dangerous {
+            cmd.push_str(" --dangerously-skip-permissions");
         }
         cmd
     }

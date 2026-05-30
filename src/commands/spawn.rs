@@ -20,7 +20,13 @@ pub struct SpawnArgs {
     pub permission_mode: Option<String>,
     pub name: Option<String>,
     pub backend: String,
+    /// Convenience for `--permission-mode acceptEdits`.
     pub auto_accept: bool,
+    /// Convenience for `--permission-mode bypassPermissions` (skip all permission checks).
+    pub bypass_permissions: bool,
+    /// claude's `--dangerously-skip-permissions` (skip permission checks); also implies `trust`,
+    /// since that flag does NOT clear the separate folder-trust gate.
+    pub yolo: bool,
     /// Auto-clear the one-time folder-trust gate so the session becomes immediately driveable.
     pub trust: bool,
     pub width: u16,
@@ -36,6 +42,8 @@ impl Default for SpawnArgs {
             name: None,
             backend: "claude".to_string(),
             auto_accept: false,
+            bypass_permissions: false,
+            yolo: false,
             trust: false,
             width: DEFAULT_WIDTH,
             height: DEFAULT_HEIGHT,
@@ -45,13 +53,13 @@ impl Default for SpawnArgs {
 
 pub fn run(args: SpawnArgs) -> Result<Session> {
     let backend = backend::resolve(&args.backend)?;
+    let (permission_mode, dangerous) = resolve_posture(&args)?;
 
     let cwd = resolve_cwd(args.cwd)?;
     let session_id = match args.session_id {
         Some(id) => validate_uuid(id)?,
         None => Uuid::new_v4().to_string(),
     };
-    let permission_mode = resolve_permission_mode(args.permission_mode, args.auto_accept)?;
     let name = args.name.unwrap_or_else(|| default_name(&cwd, &session_id));
     // Reject hostile names before they become a tmux session name or a sidecar filename.
     session::validate_name(&name)?;
@@ -71,11 +79,14 @@ pub fn run(args: SpawnArgs) -> Result<Session> {
     let command = backend.spawn_command(&SpawnOpts {
         session_id,
         permission_mode,
+        dangerous,
     });
     tmux::new_session(&session.name, args.width, args.height, &session.cwd, &command)?;
 
     // Anything that fails after the session is live must not leave an orphaned, untracked session.
-    if let Err(e) = post_spawn(&session, args.trust, backend.as_ref()) {
+    // `--yolo` is the zero-friction posture, so it also clears the (separate) folder-trust gate —
+    // `--dangerously-skip-permissions` skips permission checks but NOT the trust prompt.
+    if let Err(e) = post_spawn(&session, args.trust || args.yolo, backend.as_ref()) {
         let _ = tmux::kill_session(&session.name);
         return Err(e);
     }
@@ -100,21 +111,41 @@ fn resolve_cwd(cwd: Option<PathBuf>) -> Result<String> {
     Ok(abs.to_string_lossy().into_owned())
 }
 
-/// Explicit `--permission-mode` wins; otherwise `--auto-accept` maps to `acceptEdits`.
-fn resolve_permission_mode(explicit: Option<String>, auto_accept: bool) -> Result<Option<String>> {
-    if let Some(mode) = explicit {
+/// Resolve the permission posture into `(permission_mode, dangerous)`. The four posture flags are
+/// mutually exclusive; `--yolo` uses claude's standalone skip flag, the rest map to a mode.
+fn resolve_posture(args: &SpawnArgs) -> Result<(Option<String>, bool)> {
+    let specified = [
+        args.permission_mode.is_some(),
+        args.auto_accept,
+        args.bypass_permissions,
+        args.yolo,
+    ]
+    .iter()
+    .filter(|&&set| set)
+    .count();
+    if specified > 1 {
+        return Err(Error::ConflictingPermissionFlags);
+    }
+
+    if args.yolo {
+        return Ok((None, true));
+    }
+    if args.bypass_permissions {
+        return Ok((Some("bypassPermissions".to_string()), false));
+    }
+    if args.auto_accept {
+        return Ok((Some("acceptEdits".to_string()), false));
+    }
+    if let Some(mode) = &args.permission_mode {
         if !CLAUDE_PERMISSION_MODES.contains(&mode.as_str()) {
             return Err(Error::InvalidPermissionMode(
-                mode,
+                mode.clone(),
                 format!("{CLAUDE_PERMISSION_MODES:?}"),
             ));
         }
-        return Ok(Some(mode));
+        return Ok((Some(mode.clone()), false));
     }
-    if auto_accept {
-        return Ok(Some("acceptEdits".to_string()));
-    }
-    Ok(None)
+    Ok((None, false))
 }
 
 fn validate_uuid(id: String) -> Result<String> {
@@ -152,4 +183,43 @@ fn default_name(cwd: &str, session_id: &str) -> String {
     let base = cwd.rsplit('/').find(|s| !s.is_empty()).unwrap_or("agent");
     let short = &session_id[..session_id.len().min(8)];
     format!("csd-{base}-{short}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(f: impl FnOnce(&mut SpawnArgs)) -> SpawnArgs {
+        let mut a = SpawnArgs::default();
+        f(&mut a);
+        a
+    }
+
+    #[test]
+    fn posture_flags_map_to_modes() {
+        assert_eq!(resolve_posture(&SpawnArgs::default()).unwrap(), (None, false));
+        assert_eq!(
+            resolve_posture(&args(|a| a.auto_accept = true)).unwrap(),
+            (Some("acceptEdits".into()), false)
+        );
+        assert_eq!(
+            resolve_posture(&args(|a| a.bypass_permissions = true)).unwrap(),
+            (Some("bypassPermissions".into()), false)
+        );
+        assert_eq!(resolve_posture(&args(|a| a.yolo = true)).unwrap(), (None, true));
+        assert_eq!(
+            resolve_posture(&args(|a| a.permission_mode = Some("plan".into()))).unwrap(),
+            (Some("plan".into()), false)
+        );
+    }
+
+    #[test]
+    fn rejects_conflicting_and_invalid_postures() {
+        assert!(resolve_posture(&args(|a| {
+            a.yolo = true;
+            a.bypass_permissions = true;
+        }))
+        .is_err());
+        assert!(resolve_posture(&args(|a| a.permission_mode = Some("nope".into()))).is_err());
+    }
 }

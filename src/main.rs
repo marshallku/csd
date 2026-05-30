@@ -22,6 +22,8 @@ fn run(cli: Cli) -> Result<()> {
             name,
             backend,
             auto_accept,
+            bypass_permissions,
+            yolo,
             trust,
         } => {
             let session = spawn::run(spawn::SpawnArgs {
@@ -31,6 +33,8 @@ fn run(cli: Cli) -> Result<()> {
                 name,
                 backend,
                 auto_accept,
+                bypass_permissions,
+                yolo,
                 trust,
                 ..Default::default()
             })?;
