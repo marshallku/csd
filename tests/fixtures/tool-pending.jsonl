@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":"List the files in this directory."}}
+{"type":"assistant","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"text","text":"I'll list them."},{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}

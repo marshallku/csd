@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":"Plan a small change, then stop for approval."}}
+{"type":"assistant","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"text","text":"Here's my plan."},{"type":"tool_use","name":"ExitPlanMode","input":{"plan":"1. Edit foo.rs\n2. Run tests"}}]}}

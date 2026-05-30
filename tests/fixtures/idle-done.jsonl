@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":"Say hello."}}
+{"type":"assistant","message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"Hello! The task is complete."}]}}

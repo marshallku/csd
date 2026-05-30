@@ -1,0 +1,27 @@
+[package]
+name = "csd"
+version = "0.1.0"
+edition = "2021"
+description = "Claude Session Driver — drives an interactive Claude REPL over tmux on the subscription seat"
+license = "MIT"
+repository = "https://github.com/marshallku/csd"
+
+[[bin]]
+name = "csd"
+path = "src/main.rs"
+
+[lib]
+name = "csd"
+path = "src/lib.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+dirs = "6"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+strip = true
+lto = true

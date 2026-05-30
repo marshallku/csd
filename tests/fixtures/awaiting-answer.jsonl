@@ -1,0 +1,2 @@
+{"type":"user","message":{"role":"user","content":"Ask me one clarifying question before doing anything."}}
+{"type":"assistant","message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"What's the goal you'd like me to work on?"}]}}
