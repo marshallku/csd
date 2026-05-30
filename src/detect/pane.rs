@@ -57,4 +57,25 @@ mod tests {
         assert!(contains_any(MENU, &["Would you like to proceed?"]));
         assert!(!contains_any(MENU, &["No such marker"]));
     }
+
+    // Real Bash permission gate captured live on claude v2.1.158.
+    const PERMISSION_GATE: &str = "\
+ Bash command
+   cp /etc/hostname /tmp/csd-perm/hn.txt
+   Copy hostname file to working directory
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to etc/ from this project
+   3. No
+ Esc to cancel · Tab to amend · ctrl+e to explain";
+
+    #[test]
+    fn parses_live_permission_menu() {
+        assert!(contains_any(PERMISSION_GATE, &["Do you want to proceed?"]));
+        let opts = parse_menu_options(PERMISSION_GATE);
+        assert_eq!(opts.len(), 3);
+        assert_eq!(opts[0], "Yes");
+        assert_eq!(opts[1], "Yes, and always allow access to etc/ from this project");
+        assert_eq!(opts[2], "No");
+    }
 }

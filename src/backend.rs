@@ -24,9 +24,6 @@ pub trait Backend {
     fn plan_markers(&self) -> &'static [&'static str];
 
     /// capture-pane substrings that indicate a tool-permission gate is on screen.
-    ///
-    /// NOTE: only the plan gate was exercised in the PoC; these are best-effort and MUST be
-    /// re-verified against a live permission prompt on first run, then pinned here.
     fn permission_markers(&self) -> &'static [&'static str];
 
     /// capture-pane substrings for the one-time "trust this folder?" startup gate that `claude`
@@ -64,12 +61,10 @@ impl Backend for Claude {
     }
 
     fn permission_markers(&self) -> &'static [&'static str] {
-        // Unverified — see trait doc. Distinct from the plan gate's "Would you like to proceed?".
-        &[
-            "Do you want to proceed?",
-            "Do you want to make this edit?",
-            "Allow this tool",
-        ]
+        // "Do you want to proceed?" verified live on v2.1.158 (Bash/tool gate) — distinct from the
+        // plan gate's "Would you like to proceed?". The edit-gate variant is the historical wording,
+        // kept as a fallback (couldn't be exercised here — Write/Edit were allowlisted).
+        &["Do you want to proceed?", "Do you want to make this edit?"]
     }
 
     fn trust_markers(&self) -> &'static [&'static str] {
