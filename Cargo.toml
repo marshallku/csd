@@ -1,10 +1,18 @@
 [package]
-name = "csd"
+name = "claude-session-driver"
 version = "0.1.0"
 edition = "2021"
-description = "Claude Session Driver — drives an interactive Claude REPL over tmux on the subscription seat"
+rust-version = "1.74"
+authors = ["Marshall Ku <marshall@kakao.com>"]
+description = "Drive an interactive Claude REPL over tmux on the subscription seat, with JSON state detection. Installs the `csd` binary."
 license = "MIT"
+readme = "README.md"
 repository = "https://github.com/marshallku/csd"
+homepage = "https://github.com/marshallku/csd"
+documentation = "https://docs.rs/claude-session-driver"
+keywords = ["claude", "tmux", "automation", "agent", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = ["/scripts", "/.github", "/docs"]
 
 [[bin]]
 name = "csd"
