@@ -51,7 +51,16 @@ impl Default for SpawnArgs {
     }
 }
 
-pub fn run(args: SpawnArgs) -> Result<Session> {
+/// Spawn output: the persisted session identity plus the (non-persisted) marker drift warning.
+#[derive(Debug, serde::Serialize)]
+pub struct SpawnResult {
+    #[serde(flatten)]
+    pub session: Session,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub marker_warning: Option<String>,
+}
+
+pub fn run(args: SpawnArgs) -> Result<SpawnResult> {
     let backend = backend::resolve(&args.backend)?;
     let (permission_mode, dangerous) = resolve_posture(&args)?;
 
@@ -64,6 +73,9 @@ pub fn run(args: SpawnArgs) -> Result<Session> {
     // Reject hostile names before they become a tmux session name or a sidecar filename.
     session::validate_name(&name)?;
 
+    let backend_version = backend.installed_version();
+    let marker_warning = backend::marker_warning(backend.as_ref(), backend_version.as_deref());
+
     // Assemble the full identity up front so post-spawn steps take a single value, and so a bad
     // jsonl path fails before we ever start a session.
     let session = Session {
@@ -72,6 +84,7 @@ pub fn run(args: SpawnArgs) -> Result<Session> {
         backend: backend.name().to_string(),
         cwd,
         permission_mode: permission_mode.clone(),
+        backend_version,
         created: session::now_epoch(),
         session_id: session_id.clone(),
     };
@@ -90,7 +103,10 @@ pub fn run(args: SpawnArgs) -> Result<Session> {
         let _ = tmux::kill_session(&session.name);
         return Err(e);
     }
-    Ok(session)
+    Ok(SpawnResult {
+        session,
+        marker_warning,
+    })
 }
 
 /// Clear the trust gate (if requested) and persist the sidecar, now that the session is live.

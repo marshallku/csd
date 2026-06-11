@@ -27,6 +27,11 @@ pub struct Session {
     pub jsonl_path: PathBuf,
     /// `--permission-mode` the session was spawned with, if any.
     pub permission_mode: Option<String>,
+    /// Backend CLI version probed at spawn (the binary is pinned for the session's lifetime, so
+    /// `state`/`ps` can check marker drift without a per-poll subprocess). `None` when the probe
+    /// failed or the sidecar predates this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_version: Option<String>,
     /// Unix epoch seconds at spawn — used to correlate plan files (which live in a global dir).
     pub created: u64,
 }
@@ -172,6 +177,23 @@ mod tests {
         for name in ["csd-csd-abc123", "agent_1", "Foo.bar-2"] {
             assert!(validate_name(name).is_ok(), "{name} should be valid");
         }
+    }
+
+    #[test]
+    fn sidecar_without_backend_version_loads_and_none_is_not_serialized() {
+        let old = r#"{
+            "name": "csd-x-abc",
+            "session_id": "00000000-0000-0000-0000-000000000000",
+            "cwd": "/tmp/x",
+            "backend": "claude",
+            "jsonl_path": "/tmp/x.jsonl",
+            "permission_mode": null,
+            "created": 1
+        }"#;
+        let session: Session = serde_json::from_str(old).unwrap();
+        assert_eq!(session.backend_version, None);
+        let body = serde_json::to_string(&session).unwrap();
+        assert!(!body.contains("backend_version"));
     }
 
     #[test]

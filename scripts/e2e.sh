@@ -85,6 +85,76 @@ done
 log "  ✓ post-approve status: $s"
 "$CSD" kill "$name2" >/dev/null
 
+# ── Test 3: tool-permission gate → approve (live-verifies the permission markers) ───────────────
+log "test 3: permission gate → approve"
+name3="$(spawn)"; SPAWNED+=("$name3")
+# Needs a command claude neither allowlists nor auto-approves as safe — network access qualifies.
+"$CSD" send "$name3" "Run this exact bash command and nothing else: curl -s http://example.com" >/dev/null
+state="$(wait_for_status "$name3" blocked)"
+gate="$(jq -r '.gate' <<<"$state")"
+[ "$gate" = "permission" ] || fail "expected permission gate, got: $gate"
+log "  ✓ blocked on permission gate ($(jq -r '.prompt' <<<"$state"))"
+"$CSD" approve "$name3" >/dev/null
+deadline=$((SECONDS + POLL_TIMEOUT))
+while [ "$SECONDS" -lt "$deadline" ]; do
+    s="$("$CSD" state "$name3" | jq -r '.status')"
+    [ "$s" != "blocked" ] && break
+    sleep 2
+done
+[ "$s" != "blocked" ] || fail "still blocked after approve"
+log "  ✓ post-approve status: $s"
+"$CSD" kill "$name3" >/dev/null
+
+# ── Test 4: marker version guard ────────────────────────────────────────────────────────────────
+# A PATH shim reports a bogus version to the probe but execs the real claude for everything else,
+# so the warning branch is deterministic regardless of what's in the built-in verified list.
+log "test 4: marker version guard"
+SHIM_DIR="$(mktemp -d /tmp/csd-e2e-shim.XXXXXX)"
+REAL_CLAUDE="$(command -v claude)" || fail "claude is required"
+cat > "$SHIM_DIR/claude" <<EOF
+#!/bin/sh
+if [ "\$1" = "--version" ]; then echo "0.0.1 (Claude Code)"; exit 0; fi
+exec "$REAL_CLAUDE" "\$@"
+EOF
+chmod +x "$SHIM_DIR/claude"
+
+json="$(PATH="$SHIM_DIR:$PATH" "$CSD" spawn --cwd "$CWD" --trust)"
+name4="$(jq -r '.name' <<<"$json")"; SPAWNED+=("$name4")
+[ "$(jq -r '.backend_version' <<<"$json")" = "0.0.1" ] || fail "spawn did not record backend_version: $json"
+jq -e '.marker_warning' <<<"$json" >/dev/null || fail "spawn missing marker_warning for unverified version: $json"
+log "  ✓ spawn warns on unverified version"
+
+"$CSD" state "$name4" | jq -e '.marker_warning' >/dev/null || fail "state missing marker_warning"
+CSD_VERIFIED_VERSIONS="0.0.1" "$CSD" state "$name4" | jq -e '.marker_warning' >/dev/null \
+    && fail "CSD_VERIFIED_VERSIONS did not silence the warning"
+log "  ✓ state warns; CSD_VERIFIED_VERSIONS silences"
+
+# The real, unshimmed binary on a marker-verified release must produce no warning.
+json="$("$CSD" spawn --cwd "$CWD" --trust --name "csd-e2e-verified")"
+SPAWNED+=("csd-e2e-verified")
+if jq -e '.marker_warning' <<<"$json" >/dev/null; then
+    log "  ⚠ installed claude $("$REAL_CLAUDE" --version) is not in the verified list —"
+    log "    re-verify the gate markers (tests 1-3 above) and extend verified_versions"
+else
+    log "  ✓ no warning on the installed (verified) claude"
+fi
+"$CSD" kill "$name4" >/dev/null
+"$CSD" kill "csd-e2e-verified" >/dev/null
+rm -rf "$SHIM_DIR"
+
+# ── Test 5: folder-trust gate (live-verifies the trust markers) ─────────────────────────────────
+# Needs a directory claude has never seen, spawned WITHOUT --trust so the gate stays on screen.
+log "test 5: trust gate"
+FRESH_DIR="$(mktemp -d /tmp/csd-e2e-trust.XXXXXX)"
+json="$("$CSD" spawn --cwd "$FRESH_DIR" --name csd-e2e-trust)"
+SPAWNED+=("csd-e2e-trust")
+state="$(wait_for_status csd-e2e-trust blocked)"
+gate="$(jq -r '.gate' <<<"$state")"
+[ "$gate" = "trust" ] || fail "expected trust gate, got: $gate"
+log "  ✓ blocked on trust gate"
+"$CSD" kill csd-e2e-trust >/dev/null
+rm -rf "$FRESH_DIR"
+
 # ── ps sees nothing leaked ──────────────────────────────────────────────────────────────────────
 log "ps after cleanup:"
 "$CSD" ps

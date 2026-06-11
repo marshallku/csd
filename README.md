@@ -98,9 +98,13 @@ csd spawn --cwd /tmp/work --trust --name myjob
 #   "backend": "claude",
 #   "jsonl_path": "/home/you/.claude/projects/-tmp-work/0a1b2c3d-….jsonl",
 #   "permission_mode": null,
+#   "backend_version": "2.1.173",
 #   "created": 1780127841
 # }
 ```
+
+A `marker_warning` field is appended when `backend_version` is not marker-verified — see
+[Marker version guard](#marker-version-guard).
 
 ### `csd send <session> <prompt…>`
 
@@ -167,6 +171,31 @@ csd kill myjob     # {"ok": true}
 | `dead` | — | The tmux session is gone. |
 | `unknown` | — | Up but produced output csd doesn't recognize. |
 
+## Marker version guard
+
+Gate detection depends on capture-pane markers matching claude's TUI wording, which can change in
+any release. To keep that drift from silently stalling unattended sessions, csd probes
+`claude --version` once at spawn, records it in the sidecar (`backend_version`), and attaches a
+`marker_warning` field to `spawn` / `state` / `ps` JSON whenever the session's version is not in
+the marker-verified set:
+
+```json
+{
+  "status": "working",
+  "tools": [],
+  "marker_warning": "claude 2.1.199 is not marker-verified (verified: [\"2.1.158\", \"2.1.173\"]); …"
+}
+```
+
+The field is **absent** when the version is verified — consumers can alert on its presence. The
+warning is advisory: detection still runs, it just may miss gates. After re-verifying the gates on
+a new release (run `./scripts/e2e.sh`), either extend `verified_versions` in `src/backend.rs` or
+silence it locally without a csd release:
+
+```bash
+export CSD_VERIFIED_VERSIONS="2.1.199"   # comma-separated
+```
+
 ## Permission postures (unattended runs)
 
 | You want… | Use | Effect |
@@ -223,8 +252,9 @@ cargo fmt --check
 ./scripts/e2e.sh                            # live end-to-end (needs the subscription seat + network)
 ```
 
-> Verified against `claude` v2.1.158. capture-pane gate markers and the plan-file naming shift
-> between releases — re-verify `src/backend.rs` and `src/detect/plan.rs` on upgrade.
+> Verified against `claude` v2.1.158 and v2.1.173. capture-pane gate markers and the plan-file
+> naming shift between releases — on upgrade, run `./scripts/e2e.sh` and extend
+> `verified_versions` in `src/backend.rs` (the marker version guard warns until you do).
 
 ## License
 
