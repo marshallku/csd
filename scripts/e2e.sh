@@ -155,6 +155,58 @@ log "  ✓ blocked on trust gate"
 "$CSD" kill csd-e2e-trust >/dev/null
 rm -rf "$FRESH_DIR"
 
+# ── Test 6: run one-shot (the claude -p shape) ──────────────────────────────────────────────────
+log "test 6: run one-shot"
+RUN_UUID="$(uuidgen)"
+out="$("$CSD" run --cwd "$CWD" --session-id "$RUN_UUID" --timeout "$POLL_TIMEOUT" \
+    "Reply with exactly: pong" 2>/tmp/csd-e2e-run.err)" \
+    || fail "run exited $? — $(cat /tmp/csd-e2e-run.err)"
+grep -qi "pong" <<<"$out" || fail "run stdout missing pong: $out"
+"$CSD" ps --json | jq -e --arg id "$RUN_UUID" '.sessions[] | select(.session_id == $id)' >/dev/null \
+    && fail "run leaked its session"
+log "  ✓ answered on stdout and cleaned up"
+
+# ── Test 7: run --resume continuity (verifies --resume appends to the SAME transcript) ──────────
+log "test 7: run --resume"
+RUN_JSONL="$HOME/.claude/projects/$(tr '/' '-' <<<"$CWD")/$RUN_UUID.jsonl"
+[ -f "$RUN_JSONL" ] || fail "transcript missing after run: $RUN_JSONL"
+before="$(wc -l < "$RUN_JSONL")"
+out="$("$CSD" run --cwd "$CWD" --resume "$RUN_UUID" --timeout "$POLL_TIMEOUT" \
+    "What single word did you reply with in the previous turn? Reply with only that word.")" \
+    || fail "run --resume exited $?"
+grep -qi "pong" <<<"$out" || fail "resume lost conversation context: $out"
+after="$(wc -l < "$RUN_JSONL")"
+[ "$after" -gt "$before" ] || fail "resume did not append to the same transcript ($before → $after)"
+log "  ✓ resumed turn recalled context; same jsonl grew $before → $after lines"
+# Wrong-cwd resume must fail fast (preflight), not stall.
+FRESH_DIR="$(mktemp -d /tmp/csd-e2e-resume.XXXXXX)"
+"$CSD" run --cwd "$FRESH_DIR" --resume "$RUN_UUID" "hi" 2>/dev/null \
+    && fail "resume from wrong cwd should have failed fast"
+rm -rf "$FRESH_DIR"
+log "  ✓ wrong-cwd resume fails fast"
+
+# ── Test 8: run awaiting_answer keeps the session; --session answers it ─────────────────────────
+# NOTE: the driven claude inherits this machine's global hook/memory config, so prompts must not
+# invite side effects — a personal-preference question made it write memory files, which fired its
+# own Stop hooks and replaced the final answer text.
+log "test 8: run question → --session answer"
+set +e
+out="$("$CSD" run --cwd "$CWD" --json --timeout "$POLL_TIMEOUT" \
+    "I am thinking of a number. Without using any tools or editing any files, ask me one short clarifying question to find out what it is, then wait for my answer.")"
+code=$?
+set -e
+[ "$code" -eq 3 ] || fail "expected exit 3 (awaiting_answer), got $code: $out"
+name8="$(jq -r '.session' <<<"$out")"; SPAWNED+=("$name8")
+[ -n "$(jq -r '.question' <<<"$out")" ] || fail "awaiting_answer outcome had no question: $out"
+log "  ✓ exit 3 with question: \"$(jq -r '.question' <<<"$out")\""
+out="$("$CSD" run --session "$name8" "The number is 7. Reply with exactly: thanks")" \
+    || fail "follow-up via --session exited $?"
+grep -qi "thanks" <<<"$out" || fail "follow-up answer missing: $out"
+"$CSD" ps --json | jq -e --arg n "$name8" '.sessions[] | select(.name == $n)' >/dev/null \
+    || fail "caller-owned --session was killed by run"
+"$CSD" kill "$name8" >/dev/null
+log "  ✓ question answered via --session; session ownership respected"
+
 # ── ps sees nothing leaked ──────────────────────────────────────────────────────────────────────
 log "ps after cleanup:"
 "$CSD" ps

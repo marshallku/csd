@@ -16,6 +16,15 @@ pub enum Error {
     #[error("session {0:?} does not exist")]
     NoSuchSession(String),
 
+    #[error("session {0:?} is not alive (tmux session gone) — it cannot accept a prompt")]
+    SessionNotAlive(String),
+
+    #[error("no transcript at {0:?} — --resume needs the session id's original --cwd")]
+    NoTranscript(PathBuf),
+
+    #[error("empty prompt: pass it as arguments or pipe it via stdin")]
+    EmptyPrompt,
+
     #[error("session {0:?} already exists")]
     SessionExists(String),
 

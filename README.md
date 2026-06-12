@@ -47,6 +47,23 @@ cargo install --path .
 
 ## Quick start
 
+The `claude -p` shape — one synchronous command, answer on stdout:
+
+```bash
+# Ask, block until the turn finishes, print the answer, clean up
+csd run --cwd /tmp/work "Summarize what this repo does in one paragraph."
+
+# Pin the id to make the run resumable, then continue the conversation later
+id=$(uuidgen)
+csd run --cwd /tmp/work --session-id "$id" "Read main.rs and list its public functions."
+csd run --cwd /tmp/work --resume "$id"     "Now write doc comments for the first one."
+
+# Prompts can come from stdin, and --json gives the structured result instead of plain text
+cat prompt.md | csd run --cwd /tmp/work --json
+```
+
+Or drive the session manually with the async primitives:
+
 ```bash
 # 1. Spawn a detached session in a directory (auto-clear the first-run folder-trust gate)
 name=$(csd spawn --cwd /tmp/work --trust | jq -r .name)
@@ -68,7 +85,9 @@ csd kill "$name"
 ## Command reference
 
 Every structured command prints JSON to **stdout**; errors print `{"error": "..."}` to **stderr**
-and exit non-zero. So `stdout` is always safe to pipe into `jq`.
+and exit non-zero. So `stdout` is always safe to pipe into `jq`. (`csd run` is the one deliberate
+exception: its default success output is the plain answer text — pass `--json` for the structured
+form.)
 
 ### `csd spawn`
 
@@ -105,6 +124,50 @@ csd spawn --cwd /tmp/work --trust --name myjob
 
 A `marker_warning` field is appended when `backend_version` is not marker-verified — see
 [Marker version guard](#marker-version-guard).
+
+### `csd run [flags] <prompt…>`
+
+Run one prompt synchronously: spawn (or reuse/resume) a session, inject the prompt, block until
+the turn reaches a terminal state, report it. On success the answer text is printed to **stdout**
+(`claude -p` parity); every non-`done` outcome is JSON on **stderr** with a distinct exit code, so
+pipes can never mistake a question or a gate for an answer. `--json` changes that routing: every
+outcome — `done` or not — becomes JSON on **stdout** (one machine-readable stream; the exit code
+still tells you which it was). The prompt is read from stdin when no positional prompt is given.
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--cwd <DIR>` | current dir | Working directory for a freshly spawned agent. |
+| `--session-id <UUID>` | random v4 | Pin the new session's id — makes the run resumable later. |
+| `--resume <UUID>` | — | Resume a previous run's transcript (`claude --resume`). Requires the original `--cwd`; fails fast if the transcript isn't there. |
+| `--session <NAME>` | — | Reuse a **live** csd session (kept with `--keep`, or reported by a non-`done` outcome). |
+| `--permission-mode` / `--auto-accept` / `--bypass-permissions` / `--yolo` | — | Same postures as `spawn`. |
+| `--keep` | off | Keep the session alive after a successful run for fast `--session` follow-ups. |
+| `--timeout <SECS>` | `600` | Max wait for the turn to finish (`0` = no limit). |
+| `--approve-plan` | off | Auto-approve **plan** gates (option 1). Permission gates are *never* auto-approved — use a permission posture instead. |
+| `--json` | off | Print every outcome (including `done`) as JSON on stdout. |
+
+`run` always auto-clears the folder-trust gate, and `--resume` / `--session` / `--session-id` are
+mutually exclusive.
+
+**Exit codes**
+
+| Code | Outcome | Session afterwards |
+| --- | --- | --- |
+| `0` | `done` — answer on stdout | Killed (kept with `--keep`). |
+| `1` | error (`{"error":…}` on stderr) | Killed if `run` spawned it. |
+| `2` | `timed_out` — turn still in flight | **Kept** — inspect with `csd state`, reclaim with `csd kill`. |
+| `3` | `awaiting_answer` — assistant asked a question | **Kept** — answer with `csd run --session <name> "…"`. |
+| `4` | `gated` — plan/permission/trust gate on screen | **Kept** — inspect with `csd state`, answer with `csd approve`. |
+
+Non-`done` outcomes always include the `session` name, so the conversation stays answerable:
+
+```bash
+out=$(csd run --cwd /tmp/work --json "Refactor the config loader.")
+case $? in
+    0) jq -r .text <<<"$out" ;;
+    3) csd run --session "$(jq -r .session <<<"$out")" "Yes, keep the env-var fallback." ;;
+esac
+```
 
 ### `csd send <session> <prompt…>`
 

@@ -12,6 +12,10 @@ pub struct SpawnOpts {
     pub permission_mode: Option<String>,
     /// Pass claude's standalone `--dangerously-skip-permissions` (the `--yolo` posture).
     pub dangerous: bool,
+    /// Resume the transcript identified by `session_id` (`--resume <id>`) instead of starting a
+    /// fresh session pinned to it (`--session-id <id>`). Verified live on v2.1.173: resume
+    /// appends to the SAME transcript JSONL, so the sidecar's `jsonl_path` stays valid.
+    pub resume: bool,
 }
 
 /// A driveable agent CLI.
@@ -93,9 +97,10 @@ impl Backend for Claude {
 
     fn spawn_command(&self, opts: &SpawnOpts) -> String {
         // Strip the nested-CLI markers so the child doesn't think it runs inside another Claude
-        // session, then pin the session id so the transcript path is known up front.
+        // session, then pin (or resume) the session id so the transcript path is known up front.
+        let id_flag = if opts.resume { "--resume" } else { "--session-id" };
         let mut cmd = format!(
-            "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT claude --session-id {}",
+            "env -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT claude {id_flag} {}",
             opts.session_id
         );
         if let Some(mode) = &opts.permission_mode {
@@ -128,7 +133,7 @@ impl Backend for Claude {
 
     fn verified_versions(&self) -> &'static [&'static str] {
         // Extend only after a live `scripts/e2e.sh` run proves all three gates on that release.
-        &["2.1.158", "2.1.173"]
+        &["2.1.158", "2.1.173", "2.1.174"]
     }
 
     fn installed_version(&self) -> Option<String> {
@@ -162,6 +167,23 @@ mod tests {
         assert_eq!(parse_version_output("Claude Code 2.1.173"), None);
         assert_eq!(parse_version_output(""), None);
         assert_eq!(parse_version_output("   \n"), None);
+    }
+
+    #[test]
+    fn spawn_command_pins_or_resumes_the_session_id() {
+        let opts = SpawnOpts {
+            session_id: "abc-123".to_string(),
+            permission_mode: None,
+            dangerous: false,
+            resume: false,
+        };
+        let fresh = Claude.spawn_command(&opts);
+        assert!(fresh.contains("--session-id abc-123"));
+        assert!(!fresh.contains("--resume"));
+
+        let resumed = Claude.spawn_command(&SpawnOpts { resume: true, ..opts });
+        assert!(resumed.contains("--resume abc-123"));
+        assert!(!resumed.contains("--session-id"));
     }
 
     #[test]

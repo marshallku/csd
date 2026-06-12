@@ -29,6 +29,9 @@ pub struct SpawnArgs {
     pub yolo: bool,
     /// Auto-clear the one-time folder-trust gate so the session becomes immediately driveable.
     pub trust: bool,
+    /// Resume the transcript identified by `session_id` instead of starting fresh. Requires
+    /// `session_id` to be set and its transcript to exist for this cwd (preflighted).
+    pub resume: bool,
     pub width: u16,
     pub height: u16,
 }
@@ -45,6 +48,7 @@ impl Default for SpawnArgs {
             bypass_permissions: false,
             yolo: false,
             trust: false,
+            resume: false,
             width: DEFAULT_WIDTH,
             height: DEFAULT_HEIGHT,
         }
@@ -89,10 +93,17 @@ pub fn run(args: SpawnArgs) -> Result<SpawnResult> {
         session_id: session_id.clone(),
     };
 
+    // A resume target whose transcript isn't where this cwd says it should be would stall the
+    // detector forever — fail fast instead (the usual cause is running from a different --cwd).
+    if args.resume && !session.jsonl_path.exists() {
+        return Err(Error::NoTranscript(session.jsonl_path));
+    }
+
     let command = backend.spawn_command(&SpawnOpts {
         session_id,
         permission_mode,
         dangerous,
+        resume: args.resume,
     });
     tmux::new_session(&session.name, args.width, args.height, &session.cwd, &command)?;
 

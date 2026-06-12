@@ -6,6 +6,7 @@
 pub mod approve;
 pub mod kill;
 pub mod ps;
+pub mod run;
 pub mod send;
 pub mod spawn;
 pub mod state;
@@ -28,3 +29,8 @@ pub const DEFAULT_SEND_RETRIES: u32 = 5;
 /// How long to watch for the one-time folder-trust gate after spawning with `--trust`.
 pub const TRUST_POLL_ATTEMPTS: u32 = 12;
 pub const TRUST_POLL_INTERVAL: Duration = Duration::from_millis(600);
+
+/// How often `run` re-detects state while blocking on a turn.
+pub const RUN_POLL_INTERVAL: Duration = Duration::from_millis(1500);
+/// Default `run --timeout` (seconds); 0 disables the limit.
+pub const DEFAULT_RUN_TIMEOUT_SECS: u64 = 600;

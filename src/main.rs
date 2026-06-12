@@ -1,8 +1,10 @@
+use std::io::Read;
+
 use clap::Parser;
 
 use csd::cli::{Cli, Command};
-use csd::commands::{approve, kill, ps, send, spawn, state};
-use csd::Result;
+use csd::commands::{approve, kill, ps, run, send, spawn, state};
+use csd::{Error, Result};
 
 fn main() {
     let cli = Cli::parse();
@@ -40,6 +42,49 @@ fn run(cli: Cli) -> Result<()> {
             })?;
             print_json(&session);
         }
+        Command::Run {
+            cwd,
+            session_id,
+            resume,
+            session,
+            permission_mode,
+            auto_accept,
+            bypass_permissions,
+            yolo,
+            keep,
+            timeout,
+            approve_plan,
+            json,
+            prompt,
+        } => {
+            let outcome = run::run(run::RunArgs {
+                cwd,
+                session_id,
+                resume,
+                session,
+                permission_mode,
+                auto_accept,
+                bypass_permissions,
+                yolo,
+                keep,
+                timeout,
+                approve_plan,
+                prompt: resolve_prompt(prompt)?,
+            })?;
+            // stdout stays the answer channel: text (or --json everything) on stdout; non-done
+            // outcomes go to stderr as JSON so pipes never mistake a question for an answer.
+            let code = outcome.exit_code();
+            if json {
+                print_json(&outcome);
+            } else if let run::RunOutcome::Done { text, .. } = &outcome {
+                println!("{text}");
+            } else {
+                eprintln!("{}", serde_json::to_string_pretty(&outcome)?);
+            }
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
         Command::Send {
             session,
             prompt,
@@ -73,6 +118,24 @@ fn run(cli: Cli) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Prompt from the positional args, or stdin when none were given (`cat prompt.md | csd run`).
+fn resolve_prompt(args: Vec<String>) -> Result<String> {
+    let prompt = if args.is_empty() {
+        let mut buf = String::new();
+        std::io::stdin().read_to_string(&mut buf).map_err(|e| Error::Io {
+            path: "stdin".into(),
+            source: e,
+        })?;
+        buf.trim().to_string()
+    } else {
+        args.join(" ")
+    };
+    if prompt.is_empty() {
+        return Err(Error::EmptyPrompt);
+    }
+    Ok(prompt)
 }
 
 fn print_json<T: serde::Serialize>(value: &T) {

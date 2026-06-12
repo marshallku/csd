@@ -43,6 +43,18 @@ pub fn parse(body: &str) -> Vec<Value> {
         .collect()
 }
 
+/// Count the turn-relevant events — `type` `user`/`assistant`, the only kinds [`classify`] keys
+/// off. `run` records this before sending as a freshness watermark: a transcript carries far more
+/// metadata events (`system`, `ai-title`, `attachment`, …) than turn events, and metadata keeps
+/// landing AFTER the final assistant message (live census: 6 turn events in a 38-line transcript),
+/// so a raw line count would unblock a wait on stale state.
+pub fn turn_event_count(events: &[Value]) -> usize {
+    events
+        .iter()
+        .filter(|e| matches!(event_type(e), Some("user") | Some("assistant")))
+        .count()
+}
+
 /// Classify a turn from the transcript events alone (PoC §3.4, with the later-user refinement).
 pub fn classify(events: &[Value]) -> JsonlState {
     let Some(last_ai_idx) = events.iter().rposition(|e| event_type(e) == Some("assistant")) else {
@@ -143,6 +155,22 @@ fn plan_tool_input(blocks: &[Value]) -> Option<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn turn_event_count_ignores_metadata_events() {
+        let events = parse(
+            r#"{"type":"user"}
+{"type":"assistant"}
+{"type":"system"}
+{"type":"ai-title"}
+{"type":"attachment"}
+{"type":"file-history-snapshot"}
+{"type":"assistant"}
+{"no_type_at_all":true}"#,
+        );
+        assert_eq!(turn_event_count(&events), 3);
+        assert_eq!(turn_event_count(&[]), 0);
+    }
 
     #[test]
     fn question_with_trailing_parenthetical_is_detected() {
