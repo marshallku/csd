@@ -121,14 +121,20 @@ fn run(cli: Cli) -> Result<()> {
 }
 
 /// Prompt from the positional args, or stdin when none were given (`cat prompt.md | csd run`).
+///
+/// Stdin is read as raw bytes and lossily decoded (invalid sequences → U+FFFD) rather than
+/// requiring strict UTF-8: callers pipe large machine-generated prompts (e.g. life-assistant's
+/// ~73K-char committee briefings, which embed news/RSS/financial text and may be byte-truncated
+/// mid-codepoint), and `claude -p` tolerates those bytes. A hard "stream did not contain valid
+/// UTF-8" error here would fail the whole run over a single stray byte.
 fn resolve_prompt(args: Vec<String>) -> Result<String> {
     let prompt = if args.is_empty() {
-        let mut buf = String::new();
-        std::io::stdin().read_to_string(&mut buf).map_err(|e| Error::Io {
+        let mut buf = Vec::new();
+        std::io::stdin().read_to_end(&mut buf).map_err(|e| Error::Io {
             path: "stdin".into(),
             source: e,
         })?;
-        buf.trim().to_string()
+        String::from_utf8_lossy(&buf).trim().to_string()
     } else {
         args.join(" ")
     };
