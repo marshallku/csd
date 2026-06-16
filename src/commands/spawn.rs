@@ -206,8 +206,20 @@ fn clear_trust_gate(name: &str, backend: &dyn Backend) -> Result<bool> {
 }
 
 /// `csd-<cwd-basename>-<first 8 of uuid>` — readable and collision-resistant.
+///
+/// The basename is sanitized to `[A-Za-z0-9_-]` (everything else → `-`, then leading/trailing `-`
+/// trimmed). A raw basename like `Marshall Ku` (the bot home) would otherwise produce an invalid
+/// tmux session name, and a `.` would be silently rewritten to `_` by tmux — both break the later
+/// session lookup. Dots are intentionally folded to `-` here even though `validate_name` permits
+/// them, precisely because tmux mangles `.` in session names.
 fn default_name(cwd: &str, session_id: &str) -> String {
-    let base = cwd.rsplit('/').find(|s| !s.is_empty()).unwrap_or("agent");
+    let raw = cwd.rsplit('/').find(|s| !s.is_empty()).unwrap_or("agent");
+    let sanitized: String = raw
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '-' })
+        .collect();
+    let base = sanitized.trim_matches('-');
+    let base = if base.is_empty() { "agent" } else { base };
     let short = &session_id[..session_id.len().min(8)];
     format!("csd-{base}-{short}")
 }
@@ -248,5 +260,25 @@ mod tests {
         }))
         .is_err());
         assert!(resolve_posture(&args(|a| a.permission_mode = Some("nope".into()))).is_err());
+    }
+
+    #[test]
+    fn default_name_sanitizes_basename_to_a_valid_session_name() {
+        let sid = "abcdef12-3456-7890-abcd-ef1234567890";
+        // Spaces and dots in the basename → `-`, and the result must pass validate_name (which is
+        // what gates spawn) so the bot home `~/bots/Marshall Ku` and dotted temp dirs both work.
+        for cwd in ["/home/me/bots/Marshall Ku", "/tmp/foo.bar baz", "/tmp/a_b-c"] {
+            let name = default_name(cwd, sid);
+            assert!(name.starts_with("csd-"), "{name}");
+            assert!(!name.contains(' '), "{name} must not contain spaces");
+            assert!(!name.contains('.'), "{name} must not contain dots (tmux mangles them)");
+            crate::session::validate_name(&name)
+                .unwrap_or_else(|e| panic!("{name} should be a valid session name: {e}"));
+        }
+        assert_eq!(
+            default_name("/home/me/bots/Marshall Ku", sid),
+            "csd-Marshall-Ku-abcdef12"
+        );
+        assert_eq!(default_name("/tmp/a_b-c", sid), "csd-a_b-c-abcdef12");
     }
 }

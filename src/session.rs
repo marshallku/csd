@@ -130,11 +130,19 @@ pub fn now_epoch() -> u64 {
         .unwrap_or(0)
 }
 
-/// Slugify a cwd the way `claude` names its project transcript dir: every `/` → `-`.
+/// Slugify a cwd the way `claude` names its project transcript dir: every character that is not an
+/// ASCII alphanumeric becomes `-` (claude's rule is `replace(/[^a-zA-Z0-9]/g, '-')`, applied
+/// per-character with no collapsing). This matters for any cwd containing `_`, `.`, or a space —
+/// e.g. the life-assistant bot home `~/bots/Marshall Ku` — where the previous `/`-only replacement
+/// pointed at a non-existent transcript path, so the hybrid detector never saw the turn complete and
+/// `run` hung until its timeout.
 ///
 /// `/tmp/claude-itest1` → `-tmp-claude-itest1` (PoC §2.1).
+/// `/home/me/bots/Marshall Ku` → `-home-me-bots-Marshall-Ku`.
 pub fn cwd_slug(cwd: &str) -> String {
-    cwd.replace('/', "-")
+    cwd.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
 }
 
 /// Deterministic transcript path: `~/.claude/projects/<cwd-slug>/<session-id>.jsonl`.
@@ -170,6 +178,18 @@ mod tests {
     fn slug_replaces_every_slash() {
         assert_eq!(cwd_slug("/tmp/claude-itest1"), "-tmp-claude-itest1");
         assert_eq!(cwd_slug("/home/marshall/dev/csd"), "-home-marshall-dev-csd");
+    }
+
+    #[test]
+    fn slug_replaces_every_non_alphanumeric() {
+        // Matches claude's `replace(/[^a-zA-Z0-9]/g, '-')`: underscores, dots, and spaces all
+        // become `-`, so the transcript path resolves for paths like the bot home with a space.
+        assert_eq!(
+            cwd_slug("/tmp/Test_Case_E2E/001/tester"),
+            "-tmp-Test-Case-E2E-001-tester"
+        );
+        assert_eq!(cwd_slug("/home/me/bots/Marshall Ku"), "-home-me-bots-Marshall-Ku");
+        assert_eq!(cwd_slug("/tmp/a.b"), "-tmp-a-b");
     }
 
     #[test]
