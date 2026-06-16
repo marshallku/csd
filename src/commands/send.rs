@@ -34,9 +34,13 @@ pub fn run(args: SendArgs) -> Result<SendResult> {
     let needle = echo_needle(&args.prompt);
 
     for attempt in 1..=args.retries {
-        // Clear any partial input from a previous failed attempt, then type the prompt.
+        // Clear any partial input from a previous failed attempt, then paste the prompt.
+        // paste_text (load-buffer + bracketed paste-buffer) is used instead of send-keys -l so
+        // arbitrarily large, multi-line prompts land atomically: send-keys -l caps out (tmux
+        // rejects a ~73 KiB argv) and types char-by-char, while a bracketed paste is delivered as
+        // one unit that the TUI collapses to a "[Pasted text …]" placeholder (handled by echo).
         tmux::send_key(&args.session, "C-u")?;
-        tmux::send_literal(&args.session, &args.prompt)?;
+        tmux::paste_text(&args.session, &args.prompt)?;
         sleep(SEND_SETTLE);
 
         let pane = tmux::capture_pane(&args.session)?;
